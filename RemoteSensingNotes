@@ -1,0 +1,195 @@
+# This is your R Script templete. Your instructions are marked with # 
+# Put your response into the next empty line 
+
+# Import Libraries
+
+library(raster)
+library(rgdal)
+library(RStoolbox)
+
+# Set Working Directory - Folder where you have all your files (0.3 Points)
+wd= "C:/Users/Tom McKeon/Documents/remoteS/Exam1"
+setwd(wd)
+dir()
+
+# PART 1: Untar and Import Landsat 8 Bands 
+L8Name="LC08_L1TP_196023_20190629_20190706_01_T1" # this is the CORRECT name. Do not change
+
+# Untar (0.1 Points)
+untar(paste(wd, paste(L8Name, "tar.gz", sep="."),sep="/"))
+
+# Read Meta Data (0.2 Points)
+meta=readMeta(paste(paste(L8Name, "MTL", sep="_"), "txt", sep="."))
+
+# Create raster Stack L8 (0.3 Points)
+L8=stackMeta(paste(paste(L8Name, "MTL", sep="_"), "txt", sep="."))
+
+
+#############################################################################################
+# PART 2: Import SRTM images
+srtmName1="n53_e009_1arc_v3.tif" # this is the CORRECT name. Do not change
+srtmName2="n53_e010_1arc_v3.tif" # this is the CORRECT name. Do not change
+srtm1=raster(srtmName1)
+srtm2=raster(srtmName2)
+
+# Mosaic 2 SRTM images into 1
+srtm=mosaic(srtm1,srtm2, fun="mean")
+
+# Reproject SRTM with L8 
+srtmPrj=projectRaster(srtm, L8)
+
+##############################################################################################
+# PART 3: Import Shapefile of City Boundaries = extent
+e=readOGR("Hamburg.shp") # this is the CORRECT name: Hamburg.shp Do not Change
+
+
+# Test projections of all objects
+crs(e)
+crs(L8)
+crs(srtmPrj)
+# What is the projection of your files? (0.1 Points) - 
+# +proj=utm +zone=32 +datum=WGS84 +units=m +no_defs 
+
+
+##############################################################################################
+# PART 4: Define your study area
+# Clip/Crop L8 with City Boundaries
+L8Rsz=crop(L8,e)
+
+# Clip/Crop srtmPrj with City Boundaries like in previous step (0.1 Points)
+srtmRsz=crop(srtmPrj,e)
+plot(srtmRsz)
+  
+  
+  
+##############################################################################################  
+# PART 5: Convert Digital Numbers into Reflectance (Lab 5)  
+# rename the bands
+names(L8Rsz) <- c('B1_dn','B2_dn','B3_dn','B4_dn','B5_dn','B6_dn', 'B7_dn', 'B9_dn', 'B10_dn', 'B11_dn') # this is the CORRECT name. Do not change
+
+# Estimate the value of the darkest pixels in haze bands 1:5 (0.5 Points)
+haze=estimateHaze(L8Rsz, hazeBands=1:5,
+                  darkProp=0.001, plot=TRUE)
+haze
+## B1_dn B2_dn B3_dn B4_dn B5_dn
+##  9245  8204  7071  6264  5801  
+
+
+# Calculate Ground Reflectance (DOS) for bands 1:5 (0.5 Points)
+
+L8dos=radCor(L8Rsz[[1:5]], metaData=meta, method="sdos", hazeValues=haze, hazeBands=1:5,verbose=TRUE)
+
+# Plot it
+plotRGB(L8dos, r=3, g=4, b=5, axes=FALSE, stretch="lin")
+
+# Examine the properties and characteristics of your new ground reflectance raster
+L8dos
+
+#QUESTION (0.1 Points):
+#What is the minimum and maximum reflectance in bands 1 to 5? - 
+#names      : B1_sre, B2_sre, B3_sre, B4_sre, B5_sre 
+#min values :      0,      0,      0,      0,      0 
+#max values :      1,      1,      1,      1,      1 
+
+
+##############################################################################################
+# PART 6: Topographic Correction
+# Calculate Slope and Aspect and stack files into terrainvar like in lab 5
+slope=terrain(srtmRsz, opt='slope')
+aspect=terrain(srtmRsz, opt='aspect')
+terrainvar=stack(slope,aspect)
+names(terrainvar)=c('slope', 'aspect')
+rm(slope,aspect) # remove/clear unused files
+
+
+# Apply topographic correction like in lab 6  (0.5 Points)
+# USE L8dos and method "C"!!!!!!!!
+
+L8cor= topCor(L8dos, dem=terrainvar, metaData=meta, method="C")
+
+
+# Explore the terrain structure of Hamburg and answer few questions. NO NEED TO CHANGE THE CODE
+# You can use this block of code for your PDF later
+  
+  
+brks <- seq(-40, 160, by=20) 
+nb <- length(brks)
+cols <- terrain.colors(nb)
+plot(srtmRsz, breaks=brks, col=cols, lab.breaks=brks)
+plot(e, add=T, border = "black")
+legend("top", legend = NA, title = expression(bold("Elevation in Meters")), bty = "n", cex = 1.3)
+
+srtmRsz
+#QUESTION (0.4 Points):
+# What is the minimum elevation? -  
+# -39.67622
+# What is the maximum elevation? -  
+# 161
+# Where are the highest areas? (give approximate location/directions) - 
+# Southwest region of the map had the highest elevation, followed by central west, and northeast.
+
+
+
+
+
+
+##############################################################################################
+# Compare your images before and after the Topographic Correction
+# PLEASE pay attention to the names of your objects/rasters. I use L8dos for Ground Reflectance, L8cor for Top Corrected Image and e for city boundaries.
+# If you use other names, replace my variables here!
+
+
+plotRGB(L8dos, r=3, g=4, b=5, axes=FALSE, stretch="lin")
+plot(e, add=T, border = "white")
+legend("top", legend = NA, title = expression(bold("Landsat. Original Image")), bty = "n", cex = 1.3)
+
+plotRGB(L8cor, r=3, g=4, b=5, axes=FALSE, stretch="lin")
+plot(e, add=T, border = "white")
+legend("top", legend = NA, title = expression(bold("Landsat. Topographic Correction")), bty = "n", cex = 1.3)
+
+
+
+# Answer the Questions
+# 1. Do you see the difference between the two images? Is it a strong difference?
+#        There is a very slight lightening of the corrected image. Not a strong difference
+
+# 2. Why do you think is the difference strong/not-strong?
+#        The original image was very clear to begin, and this could be do to
+#        the little to no cloud cover, and possibly low pollution. Overall little atmospheric reflectance.
+
+
+
+
+
+
+##############################################################################################
+
+# PART 7: Export your maps 
+
+# Create PDF with all maps that you produced previously: 1. Elevation, 2. Ground Reflectance, 3. Topographic Correction
+# Use band combination 3-4-5 to highlight impervious surfaces, sand, and bare land 
+# Keep boundaries in Map 1 of elevation
+# Do NOT use the CITY BOUNDARIES in Maps 2 and 3 -> delete this line: plot(e, add=T, border = "white")
+
+
+
+pdf("_Rscript.pdf")
+
+
+################# PASTE YOUR CODE for 3 Maps HERE ######################
+#### 1. Elevation, 2. Ground Reflectance (No city boundaries), 3. Topographic Correction (No city boundaries) #####
+plot(srtmRsz, breaks=brks, col=cols, lab.breaks=brks)
+plot(e, add=T, border = "black")
+legend("top", legend = NA, title = expression(bold("Elevation in Meters")), bty = "n", cex = 1.3)
+
+plotRGB(L8dos, r=3, g=4, b=5, axes=FALSE, stretch="lin")
+legend("top", legend = NA, title = expression(bold("Landsat. Original Image")), bty = "n", cex = 1.3)
+
+plotRGB(L8cor, r=3, g=4, b=5, axes=FALSE, stretch="lin")
+legend("top", legend = NA, title = expression(bold("Landsat. Topographic Correction")), bty = "n", cex = 1.3)
+
+
+dev.off()
+
+
+
